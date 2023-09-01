@@ -13,9 +13,9 @@ class MergeTransformer(spark: SparkSession) {
       s3: Dataset[Source3],
       s4: Dataset[Source4]
   ): Unit = {
-    s1.join(s2, s1("brandName") === s2("brandName") && s1("modelCode") === s2("modelCode"), "left")
-        .join(s3, s1("brandName") === s3("brandName") && s1("modelCode") === s3("modelCode"), "left")
-        .join(s4, s1("brandName") === s4("brandName") && s1("modelCode") === s4("modelCode"), "left")
+    s1.join(s2, s1("brand") === s2("brand") && s1("modelCode") === s2("modelCode"), "left")
+        .join(s3, s1("brand") === s3("brand") && s1("modelCode") === s3("modelCode"), "left")
+        .join(s4, s1("brand") === s4("brand") && s1("modelCode") === s4("modelCode"), "left")
         .transform(_.select(
           s4("manufacturer")                                                          as "manufacturer",
           s4("productionCountry")                                                     as "productionCountry",

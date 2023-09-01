@@ -39,6 +39,7 @@ case class Source1(
     bodyType: String,
     seatsCount: Int,
     doorsCount: Short,
+    fuel: String,
     mileage: Option[Long],
     minPrice: Option[Long],
     maxPrice: Option[Long],
