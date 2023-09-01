@@ -1,0 +1,6 @@
+.bsp/
+.idea/
+.vscode/
+.code/
+**/target/
+.sbt/
