@@ -1,7 +1,10 @@
 package ru.ahub.interview
 
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.{col, lit, struct, first}
 import org.apache.spark.sql.{Dataset, SparkSession}
-import org.apache.spark.sql.functions.coalesce
+
+import scala.reflect.runtime.universe.TypeTag
 
 class MergeTransformer(spark: SparkSession) {
 
@@ -13,35 +16,54 @@ class MergeTransformer(spark: SparkSession) {
       s3: Dataset[Source3],
       s4: Dataset[Source4]
   ): Unit = {
-    s1.join(s2, s1("brand") === s2("brand") && s1("modelCode") === s2("modelCode"), "left")
-        .join(s3, s1("brand") === s3("brand") && s1("modelCode") === s3("modelCode"), "left")
-        .join(s4, s1("brand") === s4("brand") && s1("modelCode") === s4("modelCode"), "left")
-        .transform(_.select(
-          s4("manufacturer")                                                          as "manufacturer",
-          s4("productionCountry")                                                     as "productionCountry",
-          s1("brandName")                                                             as "brandName",
-          s1("modelCode")                                                             as "modelCode",
-          s1("modelName")                                                             as "modelName",
-          s1("transmissionType")                                                      as "transmissionType",
-          s3("transmissionDetailedType")                                              as "transmissionDetailedType",
-          s3("gearsCount")                                                            as "gearsCount",
-          s3("engineCapacity")                                                        as "engineCapacity",
-          s3("enginePowerW")                                                          as "enginePowerW",
-          coalesce(s2("fuel"), s3("fuel"))                                            as "fuel",
-          s1("bodyType")                                                              as "bodyType",
-          s1("seatsCount")                                                            as "seatsCount",
-          s1("doorsCount")                                                            as "doorsCount",
-          s4("canInstallHitch")                                                       as "canInstallHitch",
-          s4("hasHitch")                                                              as "hasHitch",
-          coalesce(s1("mileage"), s2("mileage"), s3("mileage"), s4("mileage"))        as "mileage",
-          coalesce(s1("minPrice"), s2("minPrice"), s3("minPrice"), s4("minPrice"))    as "minPrice",
-          coalesce(s1("maxPrice"), s2("maxPrice"), s3("maxPrice"), s4("maxPrice"))    as "maxPrice",
-          s1("hasAirConditioner")                                                     as "hasAirConditioner",
-          s1("hasStartStopSystem")                                                    as "hasStartStopSystem",
-          s1("hasDriverAssistant")                                                    as "hasDriverAssistant",
-          s1("hasABS")                                                                as "hasABS"))
+    val unifiedS1 = s1.transform(selectAs[Source1, MatchResult])
+    val unifiedS2 = s2.transform(selectAs[Source2, MatchResult])
+    val unifiedS3 = s3.transform(selectAs[Source3, MatchResult])
+    val unifiedS4 = s4.transform(selectAs[Source4, MatchResult])
+    val spec = Window.partitionBy($"v.brandName", $"v.modelCode").orderBy("priority")
+
+    Seq(unifiedS1, unifiedS2, unifiedS3, unifiedS4)
+        .map(_.transform(df => df.select(struct(df("*")) as "v", lit(1) as "priority")))
+        .reduce(_ union _)
+        .select(
+          first("v.manufacturer", ignoreNulls = true).over(spec)              as "manufacturer",
+          first("v.productionCountry", ignoreNulls = true).over(spec)         as "productionCountry",
+          first("v.brandName", ignoreNulls = true).over(spec)                 as "brandName",
+          first("v.modelCode", ignoreNulls = true).over(spec)                 as "modelCode",
+          first("v.modelName", ignoreNulls = true).over(spec)                 as "modelName",
+          first("v.subBrand", ignoreNulls = true).over(spec)                  as "subBrand",
+          first("v.transmissionType", ignoreNulls = true).over(spec)          as "transmissionType",
+          first("v.transmissionDetailedType", ignoreNulls = true).over(spec)  as "transmissionDetailedType",
+          first("v.gearsCount", ignoreNulls = true).over(spec)                as "gearsCount",
+          first("v.engineCapacity", ignoreNulls = true).over(spec)            as "engineCapacity",
+          first("v.enginePowerW", ignoreNulls = true).over(spec)              as "enginePowerW",
+          first("v.fuel", ignoreNulls = true).over(spec)                      as "fuel",
+          first("v.bodyType", ignoreNulls = true).over(spec)                  as "bodyType",
+          first("v.seatsCount", ignoreNulls = true).over(spec)                as "seatsCount",
+          first("v.doorsCount", ignoreNulls = true).over(spec)                as "doorsCount",
+          first("v.canInstallHitch", ignoreNulls = true).over(spec)           as "canInstallHitch",
+          first("v.hasHitch", ignoreNulls = true).over(spec)                  as "hasHitch",
+          first("v.mileage", ignoreNulls = true).over(spec)                   as "mileage",
+          first("v.minPrice", ignoreNulls = true).over(spec)                  as "minPrice",
+          first("v.maxPrice", ignoreNulls = true).over(spec)                  as "maxPrice",
+          first("v.hasAirConditioner", ignoreNulls = true).over(spec)         as "hasAirConditioner",
+          first("v.hasStartStopSystem", ignoreNulls = true).over(spec)        as "hasStartStopSystem",
+          first("v.hasDriverAssistant", ignoreNulls = true).over(spec)        as "hasDriverAssistant",
+          first("v.hasABS", ignoreNulls = true).over(spec)                    as "hasABS")
         .write
         .saveAsTable("default.result_table")
+  }
+
+  private def selectAs[Source <: Product : TypeTag, Result <: Product : TypeTag](ds: Dataset[Source]) = {
+    val resultSchema = Seq.empty[Result].toDS().schema
+    val sourceSchema = ds.columns.map(_.toLowerCase())
+
+    val projection = resultSchema.map { f =>
+      val colName = f.name.toLowerCase()
+      if (sourceSchema.contains(colName)) col(colName) else lit(null).cast(f.dataType).as(colName)
+    }
+
+    ds.select(projection: _*).as[Result]
   }
 
 }
