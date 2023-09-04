@@ -1,7 +1,7 @@
 package ru.ahub.interview
 
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions.{col, lit, struct, first}
+import org.apache.spark.sql.functions.{col, first, lit, max, min, struct}
 import org.apache.spark.sql.{Dataset, SparkSession}
 
 import scala.reflect.runtime.universe.TypeTag
@@ -16,10 +16,10 @@ class MergeTransformer(spark: SparkSession) {
       s3: Dataset[Source3],
       s4: Dataset[Source4]
   ): Unit = {
-    val unifiedS1 = s1.transform(selectAs[Source1, MatchResult])
-    val unifiedS2 = s2.transform(selectAs[Source2, MatchResult])
-    val unifiedS3 = s3.transform(selectAs[Source3, MatchResult])
-    val unifiedS4 = s4.transform(selectAs[Source4, MatchResult])
+    val unifiedS1: Dataset[MatchResult] = s1.transform(selectAs[Source1, MatchResult])
+    val unifiedS2: Dataset[MatchResult] = s2.transform(selectAs[Source2, MatchResult])
+    val unifiedS3: Dataset[MatchResult] = s3.transform(selectAs[Source3, MatchResult])
+    val unifiedS4: Dataset[MatchResult] = s4.transform(selectAs[Source4, MatchResult])
     val spec = Window.partitionBy($"v.brandName", $"v.modelCode").orderBy("priority")
 
     Seq(unifiedS1, unifiedS2, unifiedS3, unifiedS4)
@@ -44,8 +44,8 @@ class MergeTransformer(spark: SparkSession) {
           first("v.canInstallHitch", ignoreNulls = true).over(spec)           as "canInstallHitch",
           first("v.hasHitch", ignoreNulls = true).over(spec)                  as "hasHitch",
           first("v.mileage", ignoreNulls = true).over(spec)                   as "mileage",
-          first("v.minPrice", ignoreNulls = true).over(spec)                  as "minPrice",
-          first("v.maxPrice", ignoreNulls = true).over(spec)                  as "maxPrice",
+          min("v.minPrice").over(spec)                                        as "minPrice",
+          max("v.maxPrice").over(spec)                                        as "maxPrice",
           first("v.hasAirConditioner", ignoreNulls = true).over(spec)         as "hasAirConditioner",
           first("v.hasStartStopSystem", ignoreNulls = true).over(spec)        as "hasStartStopSystem",
           first("v.hasDriverAssistant", ignoreNulls = true).over(spec)        as "hasDriverAssistant",
@@ -54,7 +54,7 @@ class MergeTransformer(spark: SparkSession) {
         .saveAsTable("default.result_table")
   }
 
-  private def selectAs[Source <: Product : TypeTag, Result <: Product : TypeTag](ds: Dataset[Source]) = {
+  private def selectAs[Source <: Product : TypeTag, Result <: Product : TypeTag](ds: Dataset[Source]): Dataset[Result] = {
     val resultSchema = Seq.empty[Result].toDS().schema
     val sourceSchema = ds.columns.map(_.toLowerCase())
 
